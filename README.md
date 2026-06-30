@@ -58,14 +58,14 @@ Rather than holding funds idle in hundreds of user deposit addresses, a backgrou
 
 ## Trade-offs & Known Limitations
 
-- **Amount precision**: Stored as strings and parsed as floats. Production should use a decimal library (e.g. `decimal.js`) to avoid floating point edge cases at high precision.
-- **Block scanning window**: The deposit monitor scans the last 5 blocks per run. If the service goes down for an extended period, deposits made during downtime could be missed. Production should persist the last scanned block number and resume from there.
-- **Gas estimation**: Sweep uses a fixed 21000 gas limit (standard ETH transfer). ERC-20 token support would require dynamic gas estimation.
+- **Gas estimation**: Sweep uses a fixed 21000 gas limit (standard ETH transfer). ERC-20 token support would require dynamic gas estimation per token contract.
 - **No webhook/notification system**: Users currently have to poll the balance endpoint. Production would push deposit confirmations via webhooks or WebSocket.
-- **Testnet RPC reliability**: Public Base Sepolia RPC endpoints are rate-limited and occasionally unavailable. 
-  The payout failure recovery was verified locally — on broadcast failure, locked balance is automatically 
-  restored and the transaction is marked FAILED. A production deployment would use a dedicated RPC provider 
-  (e.g. Alchemy, Infura) with fallback nodes.
+- **Testnet RPC reliability**: Public Base Sepolia RPC endpoints are rate-limited and occasionally unavailable. A production deployment would use a dedicated RPC provider (e.g. Alchemy, Infura) with fallback nodes configured.
+
+## Implementation Notes
+
+- **Decimal precision**: All balance arithmetic uses `decimal.js` to eliminate floating point errors at high crypto precision. Amounts are stored as strings in the database and never handled as raw JavaScript floats.
+- **Block persistence**: The deposit monitor persists the last scanned block in the database via the `ScanState` model. On restart, it resumes from that point rather than a fixed window, preventing missed deposits during downtime.
 
 ## How to Run
 
