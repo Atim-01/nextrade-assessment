@@ -7,6 +7,7 @@ import userRoutes from './routes/users'
 import depositRoutes from './routes/deposits'
 import payoutRoutes from './routes/payouts'
 import { startDepositMonitor } from './workers/deposit.worker'
+import { startSweepWorker } from './workers/sweep.worker'
 const app = Fastify({ logger: true })
 
 // JWT plugin
@@ -33,6 +34,7 @@ app.get('/health', async () => ({ status: 'ok' }))
 const start = async () => {
   try {
     await startDepositMonitor()
+    await startSweepWorker()
     await app.listen({ port: Number(env.PORT), host: '0.0.0.0' })
     console.log(`Server running on port ${env.PORT}`)
   } catch (err) {
