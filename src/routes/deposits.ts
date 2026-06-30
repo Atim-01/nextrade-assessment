@@ -1,43 +1,49 @@
-import { prisma } from '../lib/prisma'
 import { FastifyInstance } from 'fastify'
-import { z } from 'zod'
-import { requestPayout } from '../services/payout.service'
+import { prisma } from '../lib/prisma'
 
-const payoutSchema = z.object({
-  toAddress: z.string().startsWith('0x'),
-  amount: z.string(),
-})
+export default async function depositRoutes(app: FastifyInstance) {
 
-export default async function payoutRoutes(app: FastifyInstance) {
-
-  // POST /api/payouts — protected
-  app.post('/', {
+  // GET /api/deposits/address — returns user's deposit address
+  app.get('/address', {
     preHandler: [app.authenticate]
   }, async (request, reply) => {
-    const result = payoutSchema.safeParse(request.body)
-    if (!result.success) {
-      return reply.status(400).send({ error: result.error.flatten() })
-    }
-
     try {
       const { userId } = request.user as { userId: string }
-      const { toAddress, amount } = result.data
-      const payout = await requestPayout(userId, toAddress, amount)
-      return reply.status(201).send(payout)
+
+      const wallet = await prisma.wallet.findUnique({
+        where: { userId }
+      })
+
+      if (!wallet) {
+        return reply.status(404).send({ error: 'Wallet not found' })
+      }
+
+      return reply.send({
+        depositAddress: wallet.address,
+        network: 'Base Sepolia',
+        chainId: process.env.CHAIN_ID,
+        note: 'Send ETH to this address. Balance will be credited after 2 confirmations.'
+      })
     } catch (err: any) {
-      return reply.status(400).send({ error: err.message })
+      return reply.status(500).send({ error: err.message })
     }
   })
 
-  // GET /api/payouts/transactions — get user transaction history
+  // GET /api/deposits/transactions — deposit history
   app.get('/transactions', {
     preHandler: [app.authenticate]
   }, async (request, reply) => {
-    const { userId } = request.user as { userId: string }
-    const transactions = await prisma.transaction.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' }
-    })
-    return reply.send(transactions)
+    try {
+      const { userId } = request.user as { userId: string }
+
+      const transactions = await prisma.transaction.findMany({
+        where: { userId, type: 'DEPOSIT' },
+        orderBy: { createdAt: 'desc' }
+      })
+
+      return reply.send(transactions)
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message })
+    }
   })
 }
