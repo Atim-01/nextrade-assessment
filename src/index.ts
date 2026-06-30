@@ -6,7 +6,7 @@ import { prisma } from './lib/prisma'
 import userRoutes from './routes/users'
 import depositRoutes from './routes/deposits'
 import payoutRoutes from './routes/payouts'
-
+import { startDepositMonitor } from './workers/deposit.worker'
 const app = Fastify({ logger: true })
 
 // JWT plugin
@@ -32,6 +32,7 @@ app.get('/health', async () => ({ status: 'ok' }))
 // Graceful shutdown
 const start = async () => {
   try {
+    await startDepositMonitor()
     await app.listen({ port: Number(env.PORT), host: '0.0.0.0' })
     console.log(`Server running on port ${env.PORT}`)
   } catch (err) {
@@ -40,5 +41,4 @@ const start = async () => {
     process.exit(1)
   }
 }
-
 start()
