@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma'
 import { getProvider, getSignerWallet } from '../lib/wallet'
 import { ethers } from 'ethers'
+import Decimal from 'decimal.js'
 
 export async function requestPayout(
   userId: string,
@@ -8,41 +9,35 @@ export async function requestPayout(
   amountEth: string
 ): Promise<{ txHash: string }> {
 
-  // Validate address
   if (!ethers.isAddress(toAddress)) {
     throw new Error('Invalid destination address')
   }
 
-  const amount = parseFloat(amountEth)
-  if (isNaN(amount) || amount <= 0) {
-    throw new Error('Invalid amount')
-  }
+  const amount = new Decimal(amountEth)
+  if (amount.lte(0)) throw new Error('Invalid amount')
 
-  // Get user wallet derivation index
   const wallet = await prisma.wallet.findUnique({ where: { userId } })
   if (!wallet) throw new Error('Wallet not found')
 
-  // Lock balance atomically — this prevents double-spend
   const balance = await prisma.balance.findUnique({ where: { userId } })
   if (!balance) throw new Error('Balance not found')
 
-  const available = parseFloat(balance.amount)
-  const locked = parseFloat(balance.locked)
+  const available = new Decimal(balance.amount)
+  const locked = new Decimal(balance.locked)
 
-  if (available < amount) {
-    throw new Error(`Insufficient balance. Available: ${available} ETH`)
+  if (available.lt(amount)) {
+    throw new Error(`Insufficient balance. Available: ${available.toFixed(8)} ETH`)
   }
 
-  // Deduct from available, add to locked
+  // Lock balance before broadcast
   await prisma.balance.update({
     where: { userId },
     data: {
-      amount: (available - amount).toFixed(8),
-      locked: (locked + amount).toFixed(8),
+      amount: available.minus(amount).toFixed(8),
+      locked: locked.plus(amount).toFixed(8),
     }
   })
 
-  // Create a pending transaction record
   const transaction = await prisma.transaction.create({
     data: {
       userId,
@@ -53,7 +48,6 @@ export async function requestPayout(
     }
   })
 
-  // Broadcast the transaction
   try {
     const provider = getProvider()
     const signer = getSignerWallet(wallet.derivationIndex, provider)
@@ -63,13 +57,11 @@ export async function requestPayout(
       value: ethers.parseEther(amountEth),
     })
 
-    // Update transaction with hash
     await prisma.transaction.update({
       where: { id: transaction.id },
       data: { txHash: tx.hash, status: 'CONFIRMING' }
     })
 
-    // Wait for confirmation in background
     confirmPayout(tx, transaction.id, userId, amount).catch(err => {
       console.error(`Payout confirmation failed for tx ${tx.hash}:`, err)
     })
@@ -77,12 +69,12 @@ export async function requestPayout(
     return { txHash: tx.hash }
 
   } catch (err: any) {
-    // Broadcast failed — restore balance
+    // Restore balance on failure
     await prisma.balance.update({
       where: { userId },
       data: {
-        amount: (available).toFixed(8),
-        locked: (locked).toFixed(8),
+        amount: available.toFixed(8),
+        locked: locked.toFixed(8),
       }
     })
 
@@ -99,22 +91,20 @@ async function confirmPayout(
   tx: ethers.TransactionResponse,
   transactionId: string,
   userId: string,
-  amount: number
+  amount: Decimal
 ): Promise<void> {
   try {
-    // Wait for 2 confirmations
     await tx.wait(2)
 
-    // Deduct from locked balance
     const balance = await prisma.balance.findUnique({ where: { userId } })
     if (!balance) return
 
-    const locked = parseFloat(balance.locked)
+    const locked = new Decimal(balance.locked)
 
     await prisma.balance.update({
       where: { userId },
       data: {
-        locked: Math.max(0, locked - amount).toFixed(8),
+        locked: Decimal.max(0, locked.minus(amount)).toFixed(8),
       }
     })
 
@@ -123,21 +113,20 @@ async function confirmPayout(
       data: { status: 'CONFIRMED' }
     })
 
-    console.log(`Payout confirmed: ${amount} ETH, tx ${tx.hash}`)
+    console.log(`Payout confirmed: ${amount.toFixed(8)} ETH tx ${tx.hash}`)
 
   } catch (err) {
-    // Confirmation failed — restore full balance
     const balance = await prisma.balance.findUnique({ where: { userId } })
     if (!balance) return
 
-    const available = parseFloat(balance.amount)
-    const locked = parseFloat(balance.locked)
+    const available = new Decimal(balance.amount)
+    const locked = new Decimal(balance.locked)
 
     await prisma.balance.update({
       where: { userId },
       data: {
-        amount: (available + amount).toFixed(8),
-        locked: Math.max(0, locked - amount).toFixed(8),
+        amount: available.plus(amount).toFixed(8),
+        locked: Decimal.max(0, locked.minus(amount)).toFixed(8),
       }
     })
 

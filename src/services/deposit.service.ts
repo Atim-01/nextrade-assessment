@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma'
 import { getProvider } from '../lib/wallet'
 import { ethers } from 'ethers'
+import Decimal from 'decimal.js'
 
 const CONFIRMATIONS_REQUIRED = 2
 
@@ -8,24 +9,40 @@ export async function checkDeposits(): Promise<void> {
   const provider = getProvider()
   const currentBlock = await provider.getBlockNumber()
 
-  const wallets = await prisma.wallet.findMany({
-    include: { user: true }
-  })
+  // Persist last scanned block to avoid missing deposits during downtime
+  const scanState = await prisma.scanState.findFirst()
+  const fromBlock = scanState
+    ? Math.max(scanState.lastScannedBlock, currentBlock - 50)
+    : currentBlock - 50
+
+  const wallets = await prisma.wallet.findMany()
+
+  console.log(`Scanning blocks ${fromBlock} to ${currentBlock} for ${wallets.length} wallets`)
 
   for (const wallet of wallets) {
-    await detectBalanceDeposit(wallet, provider, currentBlock)
+    await detectBalanceDeposit(wallet, provider, fromBlock, currentBlock)
+  }
+
+  // Update last scanned block
+  if (scanState) {
+    await prisma.scanState.update({
+      where: { id: scanState.id },
+      data: { lastScannedBlock: currentBlock }
+    })
+  } else {
+    await prisma.scanState.create({
+      data: { lastScannedBlock: currentBlock }
+    })
   }
 }
 
 async function detectBalanceDeposit(
   wallet: { id: string; address: string; userId: string },
   provider: ethers.JsonRpcProvider,
+  fromBlock: number,
   currentBlock: number
 ): Promise<void> {
-  const blocksToScan = 5
-  const startBlock = Math.max(0, currentBlock - blocksToScan)
-
-  for (let blockNum = startBlock; blockNum <= currentBlock; blockNum++) {
+  for (let blockNum = fromBlock; blockNum <= currentBlock; blockNum++) {
     const block = await provider.getBlock(blockNum, true)
     if (!block || !block.transactions) continue
 
@@ -49,9 +66,10 @@ async function detectBalanceDeposit(
         })
         if (!balance) return
 
-        const newAmount = (
-          parseFloat(balance.amount) + parseFloat(amountEth)
-        ).toFixed(8)
+        // Decimal precision — no floating point errors
+        const newAmount = new Decimal(balance.amount)
+          .plus(new Decimal(amountEth))
+          .toFixed(8)
 
         await txClient.balance.update({
           where: { userId: wallet.userId },

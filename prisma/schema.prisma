@@ -47,6 +47,12 @@ model Transaction {
   user      User              @relation(fields: [userId], references: [id])
 }
 
+model ScanState {
+  id               String   @id @default(uuid())
+  lastScannedBlock Int
+  updatedAt        DateTime @updatedAt
+}
+
 enum TransactionType {
   DEPOSIT
   PAYOUT
@@ -59,3 +65,4 @@ enum TransactionStatus {
   CONFIRMED
   FAILED
 }
+

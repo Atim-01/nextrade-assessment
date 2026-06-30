@@ -9,8 +9,9 @@ const adapter = new PrismaPg(pool)
 const prisma = new PrismaClient({ adapter })
 
 async function simulateDeposit() {
-  // Get the first user wallet
+  // Get the demo user wallet
   const wallet = await prisma.wallet.findFirst({
+    where: { user: { email: 'test1@example.com' } },
     include: { user: true }
   })
 

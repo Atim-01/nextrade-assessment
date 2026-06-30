@@ -42,9 +42,10 @@ async function sweepWallet(
 
     // Estimate gas cost so we don't send more than we have
     const feeData = await provider.getFeeData()
-    const gasLimit = 21000n // standard ETH transfer
-    const gasPrice = feeData.gasPrice ?? ethers.parseUnits('1', 'gwei')
-    const gasCost = gasLimit * gasPrice
+    const gasLimit = 21000n
+    const gasPrice = feeData.gasPrice ?? ethers.parseUnits('2', 'gwei')
+    // Add 20% buffer to gas cost to ensure tx doesn't fail
+    const gasCost = gasLimit * gasPrice * 120n / 100n
 
     // Amount to send = total balance minus gas cost
     const amountToSend = onchainBalance - gasCost
