@@ -62,6 +62,10 @@ Rather than holding funds idle in hundreds of user deposit addresses, a backgrou
 - **Block scanning window**: The deposit monitor scans the last 5 blocks per run. If the service goes down for an extended period, deposits made during downtime could be missed. Production should persist the last scanned block number and resume from there.
 - **Gas estimation**: Sweep uses a fixed 21000 gas limit (standard ETH transfer). ERC-20 token support would require dynamic gas estimation.
 - **No webhook/notification system**: Users currently have to poll the balance endpoint. Production would push deposit confirmations via webhooks or WebSocket.
+- **Testnet RPC reliability**: Public Base Sepolia RPC endpoints are rate-limited and occasionally unavailable. 
+  The payout failure recovery was verified locally — on broadcast failure, locked balance is automatically 
+  restored and the transaction is marked FAILED. A production deployment would use a dedicated RPC provider 
+  (e.g. Alchemy, Infura) with fallback nodes.
 
 ## How to Run
 
